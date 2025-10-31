@@ -1,0 +1,52 @@
+name: CI
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  merge_group: {}   # REQUIRED for merge queue
+jobs:
+  gatekeeper:
+    runs-on: ubuntu-latest
+    outputs:
+      route: ${{ steps.decide.outputs.route }}
+    steps:
+      - id: decide
+        run: |
+          labels="${{ toJson(github.event.pull_request.labels) }}"
+          if echo "$labels" | grep -qi '"name":"pipeline:legacy"'; then echo "route=legacy" >> $GITHUB_OUTPUT; else echo "route=streamline" >> $GITHUB_OUTPUT; fi
+
+  ci-and-tests:
+    needs: gatekeeper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --ci --reporter=junit
+      # Optionally spin up ephemeral services/containers to mirror prod
+
+  streamline-suite:
+    if: needs.gatekeeper.outputs.route == 'streamline'
+    needs: [gatekeeper, ci-and-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Run any prod-parity smoke/integration here"
+
+  legacy-staging-deploy:
+    if: needs.gatekeeper.outputs.route == 'legacy'
+    needs: [gatekeeper, ci-and-tests]
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.example.com
+    steps:
+      - run: echo "Deploy to STAGING here (IaC/Helm/Terraform/etc.)"
+
+  legacy-staging-tests:
+    if: needs.gatekeeper.outputs.route == 'legacy'
+    needs: legacy-staging-deploy
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Run post-deploy tests against STAGING"
