@@ -1,2 +1,4 @@
 .idea/
 merge-queues.iml
+node_modules/
+package-lock.json
